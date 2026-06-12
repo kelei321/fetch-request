@@ -1,5 +1,5 @@
 {
-  "name": "@kelei321/fetch-request",
+  "name": "fetch-request",
   "version": "0.1.0",
   "description": "A lightweight typed request client built on fetch and XMLHttpRequest upload progress.",
   "type": "module",
