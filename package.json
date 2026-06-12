@@ -1,0 +1,46 @@
+{
+  "name": "@kelei321/fetch-request",
+  "version": "0.1.0",
+  "description": "A lightweight typed request client built on fetch and XMLHttpRequest upload progress.",
+  "type": "module",
+  "license": "MIT",
+  "author": "kelei321",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/kelei321/fetch-request.git"
+  },
+  "homepage": "https://github.com/kelei321/fetch-request#readme",
+  "bugs": {
+    "url": "https://github.com/kelei321/fetch-request/issues"
+  },
+  "keywords": [
+    "fetch",
+    "request",
+    "http",
+    "typescript",
+    "xhr",
+    "upload"
+  ],
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
