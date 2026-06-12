@@ -24,13 +24,13 @@ git clone https://github.com/kelei321/fetch-request.git
 也可以后续发布为 npm 包后安装：
 
 ```bash
-npm install @kelei321/fetch-request
+npm install fetch-request
 ```
 
 ## 快速开始
 
 ```ts
-import { createRequestClient } from '@kelei321/fetch-request'
+import { createRequestClient } from 'fetch-request'
 
 type User = {
   id: string
@@ -60,7 +60,7 @@ const user = await api.request<User>('/users/current')
 ## 创建客户端
 
 ```ts
-import { createRequestClient } from '@kelei321/fetch-request'
+import { createRequestClient } from 'fetch-request'
 
 const requestClient = createRequestClient({
   baseURL: import.meta.env.VITE_API_PREFIX || '/api',
@@ -263,7 +263,7 @@ await requestClient.request('/search', {
 请求失败时会抛出 `RequestError`：
 
 ```ts
-import type { RequestError } from '@kelei321/fetch-request'
+import type { RequestError } from 'fetch-request'
 
 try {
   await requestClient.request('/records')
