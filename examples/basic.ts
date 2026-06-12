@@ -1,4 +1,4 @@
-import { createRequestClient } from '@kelei321/fetch-request'
+import { createRequestClient } from 'fetch-request'
 
 type TimelineRecord = {
   id: string
