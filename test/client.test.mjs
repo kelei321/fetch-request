@@ -28,6 +28,36 @@ async function withGlobal(name, value, run) {
   }
 }
 
+function createFakeXMLHttpRequest(responses) {
+  return class FakeXMLHttpRequest {
+    upload = {}
+    timeout = 0
+
+    constructor() {
+      const response = responses.shift() || {}
+      this.status = response.status ?? 200
+      this.statusText = response.statusText ?? 'OK'
+      this.responseText = response.responseText ?? ''
+    }
+
+    open() {}
+
+    setRequestHeader() {}
+
+    getAllResponseHeaders() {
+      return 'content-type: application/json\r\n'
+    }
+
+    send() {
+      queueMicrotask(() => this.onload?.())
+    }
+
+    abort() {
+      queueMicrotask(() => this.onabort?.())
+    }
+  }
+}
+
 test('returns data, body, and raw response shapes', async () => {
   await withGlobal(
     'fetch',
@@ -138,8 +168,9 @@ test('supports removing error interceptors and propagates interceptor failures',
         calls.push('first')
       })
       const interceptorError = new Error('interceptor failed')
-      client.addResponseErrorInterceptor(() => {
+      client.addResponseErrorInterceptor(async () => {
         calls.push('second')
+        await Promise.resolve()
         throw interceptorError
       })
       client.addResponseErrorInterceptor(() => {
@@ -148,6 +179,40 @@ test('supports removing error interceptors and propagates interceptor failures',
 
       await assert.rejects(client.request('/http'), (error) => error === interceptorError)
       assert.deepEqual(calls, ['first', 'second'])
+    }
+  )
+})
+
+test('snapshots the response error interceptor chain for each request', async () => {
+  await withGlobal(
+    'fetch',
+    async () => jsonResponse({ code: 401, message: 'expired' }, 401, 'Unauthorized'),
+    async () => {
+      const client = createRequestClient({ baseURL: 'https://example.test' })
+      const calls = []
+      let mutated = false
+      let removeSecond = () => {}
+
+      client.addResponseErrorInterceptor(() => {
+        calls.push('first')
+        if (!mutated) {
+          mutated = true
+          removeSecond()
+          client.addResponseErrorInterceptor(() => {
+            calls.push('added')
+          })
+        }
+      })
+      removeSecond = client.addResponseErrorInterceptor(() => {
+        calls.push('second')
+      })
+
+      await assert.rejects(client.request('/first'))
+      assert.deepEqual(calls, ['first', 'second'])
+
+      calls.length = 0
+      await assert.rejects(client.request('/second'))
+      assert.deepEqual(calls, ['first', 'added'])
     }
   )
 })
@@ -187,6 +252,96 @@ test('raw responses and network errors do not enter the response error chain', a
 
       await assert.rejects(client.request('/network'), (error) => error.message === 'network failed')
       assert.equal(errorInterceptorCalls, 0)
+    }
+  )
+})
+
+test('normalizes aborts while reading the response body as timeout request errors', async () => {
+  await withGlobal(
+    'fetch',
+    async (_url, options) => ({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      headers: new Headers(),
+      text: () =>
+        new Promise((_resolve, reject) => {
+          options.signal.addEventListener(
+            'abort',
+            () => {
+              reject(new DOMException('aborted', 'AbortError'))
+            },
+            { once: true }
+          )
+        })
+    }),
+    async () => {
+      const client = createRequestClient({
+        baseURL: 'https://example.test',
+        timeout: 20,
+        timeoutErrorMessage: 'body timed out'
+      })
+      let errorInterceptorCalls = 0
+      client.addResponseErrorInterceptor(() => {
+        errorInterceptorCalls += 1
+      })
+
+      await assert.rejects(
+        client.request('/slow-body'),
+        (error) =>
+          error.message === 'body timed out' &&
+          error.status === 200 &&
+          error.statusText === 'OK' &&
+          error.response?.status === 200
+      )
+      assert.equal(errorInterceptorCalls, 0)
+    }
+  )
+})
+
+test('normalizes other response body read failures with response metadata', async () => {
+  await withGlobal(
+    'fetch',
+    async () => ({
+      ok: false,
+      status: 503,
+      statusText: 'Service Unavailable',
+      headers: new Headers(),
+      text: async () => {
+        throw new Error('socket closed')
+      }
+    }),
+    async () => {
+      const client = createRequestClient({
+        baseURL: 'https://example.test',
+        responseErrorMessage: 'body read failed'
+      })
+
+      await assert.rejects(
+        client.request('/broken-body'),
+        (error) =>
+          error.message === 'body read failed' &&
+          error.status === 503 &&
+          error.statusText === 'Service Unavailable' &&
+          error.response?.status === 503
+      )
+    }
+  )
+})
+
+test('configure rejects responseReturn changes and preserves the original client contract', async () => {
+  await withGlobal(
+    'fetch',
+    async () => jsonResponse({ code: 200, data: { id: 'u1' } }),
+    async () => {
+      const client = createRequestClient({ baseURL: 'https://example.test' })
+
+      assert.throws(
+        () => client.configure({ responseReturn: 'raw' }),
+        /configure 不支持修改 responseReturn/
+      )
+      assert.equal(client.configure({ timeout: 1000 }), undefined)
+      assert.deepEqual(await client.request('/user'), { id: 'u1' })
     }
   )
 })
@@ -269,29 +424,11 @@ test('propagates intercepted meta through fetch responses', async () => {
 })
 
 test('propagates intercepted meta through upload responses', async () => {
-  class FakeXMLHttpRequest {
-    upload = {}
-    status = 200
-    statusText = 'OK'
-    responseText = JSON.stringify({ code: 200, data: { uploaded: true } })
-    timeout = 0
-
-    open() {}
-
-    setRequestHeader() {}
-
-    getAllResponseHeaders() {
-      return 'content-type: application/json\r\n'
+  const FakeXMLHttpRequest = createFakeXMLHttpRequest([
+    {
+      responseText: JSON.stringify({ code: 200, data: { uploaded: true } })
     }
-
-    send() {
-      queueMicrotask(() => this.onload?.())
-    }
-
-    abort() {
-      queueMicrotask(() => this.onabort?.())
-    }
-  }
+  ])
 
   await withGlobal('XMLHttpRequest', FakeXMLHttpRequest, async () => {
     const client = createRequestClient({ baseURL: 'https://example.test' })
@@ -316,5 +453,62 @@ test('propagates intercepted meta through upload responses', async () => {
     })
     assert.deepEqual(result, { uploaded: true })
     assert.equal(responseMeta.traceId, 'upload-after-interceptor')
+  })
+})
+
+test('runs upload response errors through the response error interceptor chain', async () => {
+  const FakeXMLHttpRequest = createFakeXMLHttpRequest([
+    {
+      status: 401,
+      statusText: 'Unauthorized',
+      responseText: JSON.stringify({ code: 401, message: 'upload expired' })
+    },
+    {
+      status: 200,
+      statusText: 'OK',
+      responseText: JSON.stringify({ code: 500, message: 'upload business failed' })
+    },
+    {
+      status: 502,
+      statusText: 'Bad Gateway',
+      responseText: '<html>upload gateway failed</html>'
+    }
+  ])
+
+  await withGlobal('XMLHttpRequest', FakeXMLHttpRequest, async () => {
+    const client = createRequestClient({
+      baseURL: 'https://example.test',
+      responseErrorMessage: 'upload response failed'
+    })
+    const intercepted = []
+    client.addResponseErrorInterceptor((context) => {
+      intercepted.push({
+        status: context.error.status,
+        raw: context.raw
+      })
+    })
+    const file = new Blob(['content'])
+
+    await assert.rejects(
+      client.uploadRequest('/http', { file }),
+      (error) => error.message === 'upload expired' && error.status === 401
+    )
+    await assert.rejects(
+      client.uploadRequest('/business', { file }),
+      (error) => error.message === 'upload business failed' && error.code === 500
+    )
+    await assert.rejects(
+      client.uploadRequest('/parse', { file }),
+      (error) =>
+        error.message === 'upload response failed' &&
+        error.status === 502 &&
+        error.raw === '<html>upload gateway failed</html>'
+    )
+
+    assert.deepEqual(
+      intercepted.map((item) => item.status),
+      [401, 200, 502]
+    )
+    assert.equal(intercepted[2].raw, '<html>upload gateway failed</html>')
   })
 })

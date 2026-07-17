@@ -311,15 +311,20 @@ requestClient.configure({
 })
 ```
 
-如果动态修改默认 `responseReturn`，请使用 `configure` 返回的同一客户端实例，以获得更新后的返回类型：
+`configure` 会原地更新客户端运行配置，但不允许修改默认 `responseReturn`，避免同一实例出现运行时返回值与静态类型不一致。需要改变返回模式时，请创建新客户端或使用单次请求的 `responseConfig`：
 
 ```ts
-const rawClient = requestClient.configure({
+const rawClient = createRequestClient({
   responseReturn: 'raw'
 })
 
 const raw = await rawClient.request('/health')
-console.log(raw.status)
+
+const anotherRaw = await requestClient.request('/health', {
+  responseConfig: {
+    responseReturn: 'raw'
+  }
+})
 ```
 
 ## 示例文件

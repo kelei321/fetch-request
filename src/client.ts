@@ -29,6 +29,7 @@ import type {
   ResponseErrorInterceptor,
   ResponseInterceptor,
   ResponseReturnType,
+  RuntimeRequestClientConfig,
   UploadRequestContext,
   UploadRequestOptions
 } from './types.js'
@@ -55,11 +56,14 @@ export function createRequestClient<DefaultData = unknown>(
   const requestInterceptors: RequestInterceptor[] = []
   const responseInterceptors: ResponseInterceptor[] = []
   const responseErrorInterceptors: ResponseErrorInterceptor[] = []
-  let client: RequestClient<DefaultData, ResponseReturnType>
 
-  const configure = (nextConfig: RequestClientConfig) => {
+  const configure = (nextConfig: RuntimeRequestClientConfig): void => {
+    if ((nextConfig as RequestClientConfig).responseReturn !== undefined) {
+      throw new TypeError(
+        'configure 不支持修改 responseReturn，请创建新客户端或使用单次请求的 responseConfig'
+      )
+    }
     currentConfig = mergeClientConfig(nextConfig, currentConfig)
-    return client
   }
 
   const addRequestInterceptor = (interceptor: RequestInterceptor) => {
@@ -216,15 +220,14 @@ export function createRequestClient<DefaultData = unknown>(
     })
   }
 
-  client = {
+  return {
     request: request as RequestClient<DefaultData, ResponseReturnType>['request'],
     uploadRequest: uploadRequest as RequestClient<DefaultData, ResponseReturnType>['uploadRequest'],
     addRequestInterceptor,
     addResponseInterceptor,
     addResponseErrorInterceptor,
-    configure: configure as RequestClient<DefaultData, ResponseReturnType>['configure']
+    configure
   }
-  return client
 }
 
 async function runRequestInterceptors(

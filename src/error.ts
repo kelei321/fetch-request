@@ -21,5 +21,10 @@ export function isRequestError(error: unknown): error is RequestError {
 }
 
 export function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'AbortError'
+  )
 }

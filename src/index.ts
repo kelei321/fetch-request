@@ -19,6 +19,7 @@ export type {
   ResponseInterceptor,
   ResponseLike,
   ResponseReturnType,
+  RuntimeRequestClientConfig,
   SuccessCode,
   UploadProgress,
   UploadRequestContext,

@@ -1,4 +1,4 @@
-import { createRequestError, isRequestError } from './error.js'
+import { createRequestError, isAbortError, isRequestError } from './error.js'
 import type {
   ApiResponseConfig,
   FieldPath,
@@ -15,13 +15,13 @@ export async function handleResponse<T>(
   response: ResponseLike,
   options: {
     config: ApiResponseConfig
-    messages: Pick<ResolvedRequestClientConfig, 'responseErrorMessage'>
+    messages: Pick<ResolvedRequestClientConfig, 'responseErrorMessage' | 'timeoutErrorMessage'>
     meta?: RequestMeta
     responseErrorInterceptors: ResponseErrorInterceptor[]
     responseInterceptors: ResponseInterceptor[]
   }
 ): Promise<T> {
-  const responseText = await response.text()
+  const responseText = await readResponseText(response, options.messages)
 
   if (options.config.responseReturn === 'raw') {
     return runResponseInterceptors<T>(
@@ -86,7 +86,7 @@ async function runResponseErrorInterceptors(
     responseErrorInterceptors: ResponseErrorInterceptor[]
   }
 ) {
-  for (const interceptor of options.responseErrorInterceptors) {
+  for (const interceptor of [...options.responseErrorInterceptors]) {
     await interceptor({
       error,
       response,
@@ -94,6 +94,21 @@ async function runResponseErrorInterceptors(
       config: options.config,
       meta: options.meta
     })
+  }
+}
+
+async function readResponseText(
+  response: ResponseLike,
+  messages: Pick<ResolvedRequestClientConfig, 'responseErrorMessage' | 'timeoutErrorMessage'>
+): Promise<string> {
+  try {
+    return await response.text()
+  } catch (error) {
+    const extra = getResponseErrorExtra(response, undefined)
+    if (isAbortError(error)) {
+      throw createRequestError(messages.timeoutErrorMessage, extra)
+    }
+    throw createRequestError(messages.responseErrorMessage, extra)
   }
 }
 

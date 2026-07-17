@@ -43,11 +43,11 @@ const rawClient = createRequestClient<User>({
 })
 expectType<Promise<RawResponseResult>>(rawClient.request('/user'))
 
-const configuredRawClient = client.configure({
-  responseReturn: 'raw'
-})
-expectType<Promise<RawResponseResult>>(configuredRawClient.request('/user'))
-expectType<Promise<RawResponseResult>>(configuredRawClient.configure({ timeout: 1000 }).request('/user'))
+expectType<void>(client.configure({ timeout: 1000 }))
+expectType<Promise<User>>(client.request('/user'))
+
+// @ts-expect-error configure 不能原地改变客户端的默认返回类型。
+client.configure({ responseReturn: 'raw' })
 
 // @ts-expect-error raw 响应不能被当作业务数据。
 const invalidRawResult: Promise<User> = client.request('/user', {

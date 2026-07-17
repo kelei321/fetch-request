@@ -40,6 +40,10 @@ export interface RequestClientConfig extends Partial<ApiResponseConfig> {
   arrayFormat?: QueryArrayFormat
 }
 
+export type RuntimeRequestClientConfig = Omit<RequestClientConfig, 'responseReturn'> & {
+  responseReturn?: never
+}
+
 export interface RequestMeta {
   [key: string]: unknown
 }
@@ -178,14 +182,6 @@ interface UploadRequestMethod<DefaultData, DefaultReturn extends ResponseReturnT
   <T = DefaultData>(path: string, options: UploadRequestOptions): Promise<T | RawResponseResult>
 }
 
-interface ConfigureMethod<DefaultData, DefaultReturn extends ResponseReturnType> {
-  <NextReturn extends ResponseReturnType>(
-    config: RequestClientConfigWithReturn<NextReturn>
-  ): RequestClient<DefaultData, NextReturn>
-  (config: RequestClientConfigWithoutReturn): RequestClient<DefaultData, DefaultReturn>
-  (config: RequestClientConfig): RequestClient<DefaultData, ResponseReturnType>
-}
-
 export interface RequestClient<
   DefaultData = unknown,
   DefaultReturn extends ResponseReturnType = 'data'
@@ -195,7 +191,7 @@ export interface RequestClient<
   addRequestInterceptor: (interceptor: RequestInterceptor) => () => void
   addResponseInterceptor: (interceptor: ResponseInterceptor) => () => void
   addResponseErrorInterceptor: (interceptor: ResponseErrorInterceptor) => () => void
-  configure: ConfigureMethod<DefaultData, DefaultReturn>
+  configure: (config: RuntimeRequestClientConfig) => void
 }
 
 export interface ResolvedRequestClientConfig {
