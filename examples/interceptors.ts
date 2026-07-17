@@ -18,13 +18,14 @@ api.addRequestInterceptor((context) => {
 })
 
 api.addResponseInterceptor((context) => {
-  if (context.response.status === 401) {
+  return context.data
+})
+
+api.addResponseErrorInterceptor((context) => {
+  if (context.error.status === 401) {
     localStorage.removeItem('token')
     window.location.href = '/login'
-    return
   }
-
-  return context.data
 })
 
 export async function getCurrentUser() {

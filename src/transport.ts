@@ -1,5 +1,5 @@
-import { normalizeHeaders } from './query'
-import type { ResponseLike, UploadRequestOptions } from './types'
+import { normalizeHeaders } from './query.js'
+import type { ResponseLike, UploadRequestOptions } from './types.js'
 
 export function bindAbort(signal: AbortSignal | null | undefined, abort: () => void): () => void {
   if (!signal) {

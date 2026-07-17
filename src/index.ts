@@ -14,6 +14,8 @@ export type {
   RequestParams,
   RequestParamValue,
   ResponseContext,
+  ResponseErrorContext,
+  ResponseErrorInterceptor,
   ResponseInterceptor,
   ResponseLike,
   ResponseReturnType,
@@ -21,5 +23,5 @@ export type {
   UploadProgress,
   UploadRequestContext,
   UploadRequestOptions
-} from './types'
-export { createRequestClient } from './client'
+} from './types.js'
+export { createRequestClient } from './client.js'

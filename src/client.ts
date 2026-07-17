@@ -1,5 +1,5 @@
-import { getResponseConfig, mergeClientConfig } from './config'
-import { createRequestError, getErrorMessage, isAbortError, isRequestError } from './error'
+import { getResponseConfig, mergeClientConfig } from './config.js'
+import { createRequestError, isAbortError, isRequestError } from './error.js'
 import {
   appendQueryParams,
   buildUrl,
@@ -7,8 +7,8 @@ import {
   mergeRequestParams,
   normalizeFetchOptions,
   toRequestParams
-} from './query'
-import { handleResponse } from './response'
+} from './query.js'
+import { handleResponse } from './response.js'
 import {
   appendFormData,
   bindAbort,
@@ -16,25 +16,50 @@ import {
   createXhrResponse,
   removeInterceptor,
   setXhrHeaders
-} from './transport'
+} from './transport.js'
 import type {
+  RawResponseResult,
   RequestClient,
   RequestClientConfig,
+  RequestClientConfigWithReturn,
+  RequestClientConfigWithoutReturn,
   RequestContext,
   RequestInterceptor,
   RequestOptions,
+  ResponseErrorInterceptor,
   ResponseInterceptor,
+  ResponseReturnType,
   UploadRequestContext,
   UploadRequestOptions
-} from './types'
+} from './types.js'
 
-export function createRequestClient<DefaultData = unknown>(config: RequestClientConfig = {}): RequestClient<DefaultData> {
+export function createRequestClient<DefaultData = unknown>(
+  config: RequestClientConfigWithReturn<'raw'>
+): RequestClient<DefaultData, 'raw'>
+export function createRequestClient<DefaultData = unknown>(
+  config: RequestClientConfigWithReturn<'body'>
+): RequestClient<DefaultData, 'body'>
+export function createRequestClient<DefaultData = unknown>(
+  config: RequestClientConfigWithReturn<'data'>
+): RequestClient<DefaultData, 'data'>
+export function createRequestClient<DefaultData = unknown>(
+  config?: RequestClientConfigWithoutReturn
+): RequestClient<DefaultData, 'data'>
+export function createRequestClient<DefaultData = unknown>(
+  config: RequestClientConfig
+): RequestClient<DefaultData, ResponseReturnType>
+export function createRequestClient<DefaultData = unknown>(
+  config: RequestClientConfig = {}
+): RequestClient<DefaultData, ResponseReturnType> {
   let currentConfig = mergeClientConfig(config)
   const requestInterceptors: RequestInterceptor[] = []
   const responseInterceptors: ResponseInterceptor[] = []
+  const responseErrorInterceptors: ResponseErrorInterceptor[] = []
+  let client: RequestClient<DefaultData, ResponseReturnType>
 
   const configure = (nextConfig: RequestClientConfig) => {
     currentConfig = mergeClientConfig(nextConfig, currentConfig)
+    return client
   }
 
   const addRequestInterceptor = (interceptor: RequestInterceptor) => {
@@ -47,7 +72,15 @@ export function createRequestClient<DefaultData = unknown>(config: RequestClient
     return () => removeInterceptor(responseInterceptors, interceptor)
   }
 
-  const request = async <T = DefaultData>(path: string, options: RequestOptions = {}): Promise<T> => {
+  const addResponseErrorInterceptor = (interceptor: ResponseErrorInterceptor) => {
+    responseErrorInterceptors.push(interceptor)
+    return () => removeInterceptor(responseErrorInterceptors, interceptor)
+  }
+
+  const request = async <T = DefaultData>(
+    path: string,
+    options: RequestOptions = {}
+  ): Promise<T | RawResponseResult> => {
     const configSnapshot = currentConfig
     const { timeout, signal, responseConfig, meta, data, params, arrayFormat, ...fetchOptions } = options
     const queryArrayFormat = arrayFormat ?? configSnapshot.arrayFormat
@@ -75,31 +108,38 @@ export function createRequestClient<DefaultData = unknown>(config: RequestClient
     const cleanupAbort = bindAbort(signal, () => controller.abort())
 
     try {
-      const response = await fetch(requestConfig.url, {
-        ...requestConfig.options,
-        signal: controller.signal
-      })
-      return await handleResponse<T>(createFetchResponse(response), {
+      let response: Response
+      try {
+        response = await fetch(requestConfig.url, {
+          ...requestConfig.options,
+          signal: controller.signal
+        })
+      } catch (error) {
+        if (isAbortError(error)) {
+          throw createRequestError(configSnapshot.timeoutErrorMessage)
+        }
+        if (isRequestError(error)) {
+          throw error
+        }
+        throw createRequestError(configSnapshot.networkErrorMessage)
+      }
+      return await handleResponse<T | RawResponseResult>(createFetchResponse(response), {
         config: getResponseConfig(configSnapshot, responseConfig),
         messages: configSnapshot,
-        meta,
+        meta: requestConfig.meta,
+        responseErrorInterceptors,
         responseInterceptors
       })
-    } catch (error) {
-      if (isAbortError(error)) {
-        throw createRequestError(configSnapshot.timeoutErrorMessage)
-      }
-      if (isRequestError(error)) {
-        throw error
-      }
-      throw createRequestError(configSnapshot.networkErrorMessage)
     } finally {
       globalThis.clearTimeout(timer)
       cleanupAbort()
     }
   }
 
-  const uploadRequest = async <T = DefaultData>(path: string, options: UploadRequestOptions): Promise<T> => {
+  const uploadRequest = async <T = DefaultData>(
+    path: string,
+    options: UploadRequestOptions
+  ): Promise<T | RawResponseResult> => {
     const configSnapshot = currentConfig
     const { timeout, signal, responseConfig, meta, onProgress, ...uploadOptions } = options
     const url = buildUrl(path, configSnapshot.baseURL)
@@ -114,7 +154,7 @@ export function createRequestClient<DefaultData = unknown>(config: RequestClient
       requestInterceptors
     )) as UploadRequestContext
 
-    return new Promise<T>((resolve, reject) => {
+    return new Promise<T | RawResponseResult>((resolve, reject) => {
       if (!requestConfig.options.file) {
         reject(createRequestError('请选择上传文件'))
         return
@@ -155,15 +195,16 @@ export function createRequestClient<DefaultData = unknown>(config: RequestClient
         cleanupAbort()
         try {
           const response = createXhrResponse(xhr)
-          const result = await handleResponse<T>(response, {
+          const result = await handleResponse<T | RawResponseResult>(response, {
             config: getResponseConfig(configSnapshot, responseConfig),
             messages: configSnapshot,
-            meta,
+            meta: requestConfig.meta,
+            responseErrorInterceptors,
             responseInterceptors
           })
           resolve(result)
         } catch (error) {
-          reject(isRequestError(error) ? error : createRequestError(getErrorMessage(error, configSnapshot.networkErrorMessage)))
+          reject(error)
         }
       }
 
@@ -175,13 +216,15 @@ export function createRequestClient<DefaultData = unknown>(config: RequestClient
     })
   }
 
-  return {
-    request,
-    uploadRequest,
+  client = {
+    request: request as RequestClient<DefaultData, ResponseReturnType>['request'],
+    uploadRequest: uploadRequest as RequestClient<DefaultData, ResponseReturnType>['uploadRequest'],
     addRequestInterceptor,
     addResponseInterceptor,
-    configure
+    addResponseErrorInterceptor,
+    configure: configure as RequestClient<DefaultData, ResponseReturnType>['configure']
   }
+  return client
 }
 
 async function runRequestInterceptors(
