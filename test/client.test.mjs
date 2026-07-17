@@ -153,6 +153,53 @@ test('runs response error interceptors for HTTP, business, and parse errors', as
   )
 })
 
+test('does not route fetch response interceptor failures through the response error chain', async () => {
+  const plainError = new Error('response interceptor failed')
+  let responseInterceptorCalls = 0
+  let responseErrorInterceptorCalls = 0
+
+  await withGlobal(
+    'fetch',
+    async (url) => {
+      if (String(url).endsWith('/refresh-token')) {
+        return jsonResponse({ code: 401, message: 'refresh expired' }, 401, 'Unauthorized')
+      }
+      return jsonResponse({ code: 200, data: { ok: true } })
+    },
+    async () => {
+      const client = createRequestClient({ baseURL: 'https://example.test' })
+      const authClient = createRequestClient({ baseURL: 'https://auth.example.test' })
+      client.addResponseErrorInterceptor(() => {
+        responseErrorInterceptorCalls += 1
+      })
+      client.addResponseInterceptor(async (context) => {
+        responseInterceptorCalls += 1
+        if (responseInterceptorCalls === 1) {
+          throw plainError
+        }
+        await authClient.request('/refresh-token')
+        return context.data
+      })
+
+      await assert.rejects(client.request('/plain-error'), (error) => error === plainError)
+
+      let nestedRequestError
+      await assert.rejects(client.request('/nested-request-error'), (error) => {
+        nestedRequestError = error
+        return (
+          error instanceof Error &&
+          error.message === 'refresh expired' &&
+          error.status === 401 &&
+          error.response?.status === 401
+        )
+      })
+
+      assert.equal(nestedRequestError.response.status, 401)
+      assert.equal(responseErrorInterceptorCalls, 0)
+    }
+  )
+})
+
 test('supports removing error interceptors and propagates interceptor failures', async () => {
   await withGlobal(
     'fetch',
@@ -453,6 +500,59 @@ test('propagates intercepted meta through upload responses', async () => {
     })
     assert.deepEqual(result, { uploaded: true })
     assert.equal(responseMeta.traceId, 'upload-after-interceptor')
+  })
+})
+
+test('does not route upload response interceptor failures through the response error chain', async () => {
+  const FakeXMLHttpRequest = createFakeXMLHttpRequest([
+    {
+      responseText: JSON.stringify({ code: 200, data: { uploaded: true } })
+    },
+    {
+      responseText: JSON.stringify({ code: 200, data: { uploaded: true } })
+    }
+  ])
+  const plainError = new Error('upload response interceptor failed')
+  let responseInterceptorCalls = 0
+  let responseErrorInterceptorCalls = 0
+
+  await withGlobal('XMLHttpRequest', FakeXMLHttpRequest, async () => {
+    await withGlobal(
+      'fetch',
+      async () => jsonResponse({ code: 401, message: 'refresh expired' }, 401, 'Unauthorized'),
+      async () => {
+        const client = createRequestClient({ baseURL: 'https://example.test' })
+        const authClient = createRequestClient({ baseURL: 'https://auth.example.test' })
+        client.addResponseErrorInterceptor(() => {
+          responseErrorInterceptorCalls += 1
+        })
+        client.addResponseInterceptor(async (context) => {
+          responseInterceptorCalls += 1
+          if (responseInterceptorCalls === 1) {
+            throw plainError
+          }
+          await authClient.request('/refresh-token')
+          return context.data
+        })
+        const file = new Blob(['content'])
+
+        await assert.rejects(client.uploadRequest('/plain-error', { file }), (error) => error === plainError)
+
+        let nestedRequestError
+        await assert.rejects(client.uploadRequest('/nested-request-error', { file }), (error) => {
+          nestedRequestError = error
+          return (
+            error instanceof Error &&
+            error.message === 'refresh expired' &&
+            error.status === 401 &&
+            error.response?.status === 401
+          )
+        })
+
+        assert.equal(nestedRequestError.response.status, 401)
+        assert.equal(responseErrorInterceptorCalls, 0)
+      }
+    )
   })
 })
 

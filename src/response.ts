@@ -38,10 +38,11 @@ export async function handleResponse<T>(
     )
   }
 
+  let body: unknown
+  let parsed: T | RawResponseResult | null
   try {
-    const body = parseResponseText(response, responseText, options.messages.responseErrorMessage)
-    const parsed = parseResponse<T>(response, body, options.config, options.messages.responseErrorMessage)
-    return await runResponseInterceptors<T>(parsed, response, body, options)
+    body = parseResponseText(response, responseText, options.messages.responseErrorMessage)
+    parsed = parseResponse<T>(response, body, options.config, options.messages.responseErrorMessage)
   } catch (error) {
     if (!isRequestError(error)) {
       throw error
@@ -49,6 +50,8 @@ export async function handleResponse<T>(
     await runResponseErrorInterceptors(error, response, options)
     throw error
   }
+
+  return runResponseInterceptors<T>(parsed, response, body, options)
 }
 
 async function runResponseInterceptors<T>(
