@@ -7,7 +7,7 @@
 - 基于 `fetch` 的统一请求入口
 - TypeScript 类型友好，支持请求返回值泛型
 - 支持 `baseURL`、超时、统一错误文案
-- 支持请求拦截器、响应拦截器
+- 支持请求拦截器、响应拦截器和响应错误拦截器
 - 支持业务响应结构解析，例如 `{ code, data, message }`
 - 支持 GET/HEAD 自动把 `data` 转成 query 参数
 - 支持数组 query 序列化：`indices`、`brackets`、`repeat`、`comma`
@@ -120,6 +120,17 @@ const result = await requestClient.request<CreateRecordResult>('/records', {
 })
 ```
 
+### 原生请求体
+
+需要发送二进制、表单、流或文本时，使用 `RequestInit.body`。库只会为通过 `data` 序列化的 JSON 自动添加 `Content-Type: application/json`：
+
+```ts
+await requestClient.request('/binary', {
+  method: 'POST',
+  body: new Uint8Array([1, 2, 3])
+})
+```
+
 ### 自定义请求头
 
 ```ts
@@ -167,6 +178,8 @@ const raw = await requestClient.request('/users/current', {
 console.log(raw.status, raw.headers, raw.body)
 ```
 
+当 `responseReturn` 为 `raw` 时，返回值会自动推导为 `RawResponseResult`，并且不会按 HTTP 状态或业务码抛错。
+
 ### 适配不同字段名
 
 ```ts
@@ -201,20 +214,34 @@ const removeRequestInterceptor = requestClient.addRequestInterceptor((context) =
 
 ```ts
 const removeResponseInterceptor = requestClient.addResponseInterceptor((context) => {
-  if (context.response.status === 401) {
-    localStorage.removeItem('token')
-    window.location.href = '/login'
-  }
-
+  console.log(context.response.status)
   return context.data
 })
 ```
+
+响应拦截器只处理成功解析后的响应，可以返回新值交给下一个响应拦截器。
+
+### 响应错误拦截器
+
+HTTP 错误、业务码错误和响应解析错误会依次经过响应错误拦截器：
+
+```ts
+const removeResponseErrorInterceptor = requestClient.addResponseErrorInterceptor((context) => {
+  if (context.error.status === 401) {
+    localStorage.removeItem('token')
+    window.location.href = '/login'
+  }
+})
+```
+
+错误拦截器用于日志、鉴权失效等副作用，执行完成后原始 `RequestError` 仍会抛出。错误拦截器自身抛错时会停止后续错误拦截器，并传播该错误。网络错误、超时、主动取消以及 `responseReturn: 'raw'` 不会进入响应错误拦截器。
 
 拦截器注册后会返回一个移除函数：
 
 ```ts
 removeRequestInterceptor()
 removeResponseInterceptor()
+removeResponseErrorInterceptor()
 ```
 
 ## 上传文件
@@ -284,6 +311,22 @@ requestClient.configure({
 })
 ```
 
+`configure` 会原地更新客户端运行配置，但不允许修改默认 `responseReturn`，避免同一实例出现运行时返回值与静态类型不一致。需要改变返回模式时，请创建新客户端或使用单次请求的 `responseConfig`：
+
+```ts
+const rawClient = createRequestClient({
+  responseReturn: 'raw'
+})
+
+const raw = await rawClient.request('/health')
+
+const anotherRaw = await requestClient.request('/health', {
+  responseConfig: {
+    responseReturn: 'raw'
+  }
+})
+```
+
 ## 示例文件
 
 仓库内提供了几个示例：
@@ -297,11 +340,15 @@ requestClient.configure({
 ```bash
 npm install
 npm run typecheck
+npm test
 npm run build
 ```
+
+发布前的 `prepack` 会自动清理并重新构建 `dist`。构建产物为纯 ESM，可用于浏览器打包器和 Node.js 18+。
 
 ## 注意事项
 
 - 普通请求依赖运行环境提供 `fetch` 和 `AbortController`。
 - 上传进度依赖 `XMLHttpRequest`，主要面向浏览器环境。
 - 默认响应解析面向 `{ code, data, message }` 结构；如果后端直接返回原始 JSON，默认 `allowRawResponse: true` 会直接返回原始 body。
+- 包仅提供 ESM 产物，不提供 CommonJS `require()` 入口。

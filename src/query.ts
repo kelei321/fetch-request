@@ -1,18 +1,16 @@
-import { createRequestError } from './error'
-import type { QueryArrayFormat, RequestParam, RequestParams, RequestParamValue } from './types'
+import { createRequestError } from './error.js'
+import type { QueryArrayFormat, RequestParam, RequestParams, RequestParamValue } from './types.js'
 
 export function normalizeFetchOptions(options: RequestInit, data?: unknown): RequestInit {
   const headers = normalizeHeaders(options.headers)
   const hasData = data !== undefined
-  const normalizedOptions = hasData
+  const normalizedOptions: RequestInit = hasData
     ? {
         ...options,
         body: JSON.stringify(data)
       }
     : options
-  const shouldUseJsonContentType = hasData
-    ? !hasHeader(headers, 'content-type')
-    : shouldAddJsonContentType(normalizedOptions, headers)
+  const shouldUseJsonContentType = hasData && !hasHeader(headers, 'content-type')
 
   return {
     ...normalizedOptions,
@@ -34,21 +32,6 @@ export function normalizeHeaders(headers?: HeadersInit): Record<string, string> 
     return Object.fromEntries(headers)
   }
   return headers
-}
-
-function shouldAddJsonContentType(options: RequestInit, headers: Record<string, string>): boolean {
-  const body = options.body
-
-  if (!body || isBodylessMethod(options.method) || hasHeader(headers, 'content-type')) {
-    return false
-  }
-  return !(
-    typeof body === 'string' ||
-    body instanceof FormData ||
-    body instanceof URLSearchParams ||
-    body instanceof Blob ||
-    body instanceof ArrayBuffer
-  )
 }
 
 export function isBodylessMethod(method?: string): boolean {

@@ -1,4 +1,9 @@
-import type { ApiResponseConfig, QueryArrayFormat, RequestClientConfig, ResolvedRequestClientConfig } from './types'
+import type {
+  ApiResponseConfig,
+  QueryArrayFormat,
+  RequestClientConfig,
+  ResolvedRequestClientConfig
+} from './types.js'
 
 const DEFAULT_BASE_URL = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env?.VITE_API_PREFIX || '/api'
 const DEFAULT_TIMEOUT = 15000

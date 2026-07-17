@@ -1,4 +1,4 @@
-import type { RequestError } from './types'
+import type { RequestError } from './types.js'
 
 const REQUEST_ERROR_FLAG: unique symbol = Symbol('requestError')
 
@@ -21,12 +21,10 @@ export function isRequestError(error: unknown): error is RequestError {
 }
 
 export function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError'
-}
-
-export function getErrorMessage(error: unknown, fallback: string): string {
-  if (error instanceof Error && error.message) {
-    return error.message
-  }
-  return fallback
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'name' in error &&
+    (error as { name?: unknown }).name === 'AbortError'
+  )
 }

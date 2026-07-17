@@ -14,12 +14,15 @@ export type {
   RequestParams,
   RequestParamValue,
   ResponseContext,
+  ResponseErrorContext,
+  ResponseErrorInterceptor,
   ResponseInterceptor,
   ResponseLike,
   ResponseReturnType,
+  RuntimeRequestClientConfig,
   SuccessCode,
   UploadProgress,
   UploadRequestContext,
   UploadRequestOptions
-} from './types'
-export { createRequestClient } from './client'
+} from './types.js'
+export { createRequestClient } from './client.js'

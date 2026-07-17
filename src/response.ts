@@ -1,4 +1,4 @@
-import { createRequestError } from './error'
+import { createRequestError, isAbortError, isRequestError } from './error.js'
 import type {
   ApiResponseConfig,
   FieldPath,
@@ -6,20 +6,22 @@ import type {
   RequestError,
   RequestMeta,
   ResolvedRequestClientConfig,
+  ResponseErrorInterceptor,
   ResponseInterceptor,
   ResponseLike
-} from './types'
+} from './types.js'
 
 export async function handleResponse<T>(
   response: ResponseLike,
   options: {
     config: ApiResponseConfig
-    messages: Pick<ResolvedRequestClientConfig, 'networkErrorMessage' | 'responseErrorMessage'>
+    messages: Pick<ResolvedRequestClientConfig, 'responseErrorMessage' | 'timeoutErrorMessage'>
     meta?: RequestMeta
+    responseErrorInterceptors: ResponseErrorInterceptor[]
     responseInterceptors: ResponseInterceptor[]
   }
 ): Promise<T> {
-  const responseText = await response.text()
+  const responseText = await readResponseText(response, options.messages)
 
   if (options.config.responseReturn === 'raw') {
     return runResponseInterceptors<T>(
@@ -36,8 +38,19 @@ export async function handleResponse<T>(
     )
   }
 
-  const body = parseResponseText(responseText, options.messages.responseErrorMessage)
-  const parsed = parseResponse<T>(response, body, options.config, options.messages.responseErrorMessage)
+  let body: unknown
+  let parsed: T | RawResponseResult | null
+  try {
+    body = parseResponseText(response, responseText, options.messages.responseErrorMessage)
+    parsed = parseResponse<T>(response, body, options.config, options.messages.responseErrorMessage)
+  } catch (error) {
+    if (!isRequestError(error)) {
+      throw error
+    }
+    await runResponseErrorInterceptors(error, response, options)
+    throw error
+  }
+
   return runResponseInterceptors<T>(parsed, response, body, options)
 }
 
@@ -67,11 +80,46 @@ async function runResponseInterceptors<T>(
   return nextData as T
 }
 
-function parseResponseText(responseText: string, responseErrorMessage: string): unknown {
+async function runResponseErrorInterceptors(
+  error: RequestError,
+  response: ResponseLike,
+  options: {
+    config: ApiResponseConfig
+    meta?: RequestMeta
+    responseErrorInterceptors: ResponseErrorInterceptor[]
+  }
+) {
+  for (const interceptor of [...options.responseErrorInterceptors]) {
+    await interceptor({
+      error,
+      response,
+      raw: error.raw,
+      config: options.config,
+      meta: options.meta
+    })
+  }
+}
+
+async function readResponseText(
+  response: ResponseLike,
+  messages: Pick<ResolvedRequestClientConfig, 'responseErrorMessage' | 'timeoutErrorMessage'>
+): Promise<string> {
+  try {
+    return await response.text()
+  } catch (error) {
+    const extra = getResponseErrorExtra(response, undefined)
+    if (isAbortError(error)) {
+      throw createRequestError(messages.timeoutErrorMessage, extra)
+    }
+    throw createRequestError(messages.responseErrorMessage, extra)
+  }
+}
+
+function parseResponseText(response: ResponseLike, responseText: string, responseErrorMessage: string): unknown {
   try {
     return responseText ? JSON.parse(responseText) : null
   } catch (error) {
-    throw createRequestError(responseErrorMessage, { raw: responseText })
+    throw createRequestError(responseErrorMessage, getResponseErrorExtra(response, responseText))
   }
 }
 
